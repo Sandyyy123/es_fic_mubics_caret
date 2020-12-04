@@ -1,0 +1,68 @@
+---
+title: "Machine Learning with R and Caret"
+author: "Carlos Fernandez-Lozano, PhD"
+date: '`r format(Sys.Date(),"Last modified: %e %b %Y")`'
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+# Session info
+
+`sessionInfo()` display which version of R you are running in which platform and operative system, the locale you are using and the attached packages.
+
+```{r echo=FALSE}
+setwd(dir = '/home/cfernandez/git/es_fic_mubics_intro_r/')
+```
+
+
+```{r}
+sessionInfo()
+```
+
+
+# Outline
+
+In this course, we review some of the fundamentals of machine learning (ML) with `Caret` and R. Topics covered include: 
+
+* Exploratory data analysis
+* Data pre-processing
+* Filter feature selection
+* Machine learning models: Random Forest and Naive Bayes
+* Model comparison
+
+And the question now is the following: What is Machine Learning? Firstly, a hot topic in the last years. Generally speaking, a system that can access data and use it to learn and extract underlying knowledge from it in order to automatically learn without being explicitly programmed for it. So, it learns from your data (handle with care), it's fast and it tends to overfits to your data (handle with care). So we are able to build a model on the data and then use it to predict on new data. They learn patterns from the data so a particular pattern not present in your data could not been predicted nor even known by the model. Furthermore, the big assumption here is that "what we learn from the past will be used to predict the future" and as we know, the future in unpredictable. So **handle with care** following a good experimental design to reduce the uncertainties.
+
+A ML is said to overfit if the algoritms is more accurate predicting/fitting to known data (used in the training of the algorithm) than in predicting with new unknown data. A good generalization capability is thus desired. We will cover some tasks for a proper experimental design in classification problems despite the fact that there are other problems in ML research such as: regression, survival, clustering and much more. A methodology for the design of experiments with regression models is available open access [here](https://peerj.com/articles/2721/).
+
+# Caret
+
+Nowadays one of the strenghts in ML research is that you can search for a particular algorithm in a particular programming language and you'll have several different implemenations. Even more, if you need to build a ML model you'll have several differnt robust methodologies. At the same time, the big drawback is that everything is here and YOU must handle it with care. Otherways you'll build a bad model with a poor prediction and generalization capability. This means **problems**!
+
+One of the biggest efforts to normalize, democratize and standardize ML using R is the `Caret` package, a bookdown [here](https://topepo.github.io/caret/). Developed by Max Kuhn, is a single interface to hundred or thousands of functions through a complex ML pipeline. The `caret` package (short for **C**lassification **A**nd **R**egression **T**raining) contains tools for:
+
+* data splitting
+* pre-processing
+* feature selection
+* model tuning
+* variable importance
+* and much more functionalities...
+
+Following the `caret` documentation [suggestion](https://cran.r-project.org/web/packages/caret/vignettes/caret.html), in order to install the package execute the following package to ensure that all needed packages are installed and resolve all the dependencies:
+
+```{r eval=FALSE}
+install.packages("caret", dependencies = c("Depends", "Suggests"))
+```
+Be patient, it may take a while!
+
+
+
+# Summary
+
+In this course we have covered the following concepts:
+
+* Bla bla
