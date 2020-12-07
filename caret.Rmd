@@ -16,11 +16,17 @@ output:
 `sessionInfo()` display which version of R you are running in which platform and operative system, the locale you are using and the attached packages.
 
 ```{r echo=FALSE}
-setwd(dir = '/home/cfernandez/git/es_fic_mubics_intro_r/')
+setwd(dir = '/home/cfernandez/git/es_fic_mubics_caret/')
 ```
 
 
 ```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(biomaRt)
+library(GEOquery)
+library(ggplot2)
+library(caret)
 sessionInfo()
 ```
 
@@ -59,6 +65,66 @@ install.packages("caret", dependencies = c("Depends", "Suggests"))
 ```
 Be patient, it may take a while!
 
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+# TCGA - BRCA dataset
+
+Following the same steps that we used in the previous [course](https://cafernandezlo.github.io/es_fic_mubics_ggplot_dplyr/ggplot-dplyr.html) we will download the TCGA-BRCA and in particular: transcriptome profiling of gene expression quantification where the experimental strategy is (RNAseq) and the workflow type is HTSeq-FPKM-UQ and only primary solid tumor data of the affymetrix GPL86 profile.
+
+```{r}
+query = GDCquery(project = 'TCGA-BRCA', 
+         data.category = 'Transcriptome Profiling',
+         data.type = 'Gene Expression Quantification',
+         experimental.strategy = 'RNA-Seq',
+         workflow.type = 'HTSeq - FPKM-UQ')
+
+GDCdownload(query)
+
+brca.expDat = GDCprepare(query = query,
+                    save = T,
+                    save.filename = "TCGA-BRCA-RNASeq",
+                    remove.files.prepared =  TRUE)
+
+brca.omics = assay(brca.expDat)
+brca.omics = as.data.frame(t(brca.omics))
+
+samples = colData(brca.expDat)
+rownames(samples) = 1:nrow(samples)
+ptSamples = samples[which(samples$definition == 'Primary solid Tumor'), ]
+
+ptSamples = ptSamples[, c('barcode', 'patient', 'vital_status', 'days_to_last_follow_up', 'days_to_death', 'gender', 'age_at_diagnosis')]
+
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+convert <- getBM(filters= c('ensembl_gene_id'), 
+                 attributes= c('ensembl_gene_id', 'gene_biotype'),
+                 values=names(brca.omics),
+                 mart= mart)
+protCod = convert[which(convert$gene_biotype == 'protein_coding'), ]
+protCodIDs = protCod$ensembl_gene_id
+brca.omics = brca.omics[, match(protCodIDs, names(brca.omics))]
+
+platID96 = 'GPL96'
+
+gpl96 = getGEO(platID96)
+
+gpl96 = gpl96@dataTable@table
+annot96 = gpl96[, c('ID', 'Gene Symbol', 'Gene Title', 'ENTREZ_GENE_ID')]
+
+dict96 = getBM(filters= c('affy_hg_u133a'), 
+               attributes= c('ensembl_gene_id', 'affy_hg_u133a','hgnc_symbol'),
+               values= annot96$ID,
+               mart= mart)
+
+genes96 = unique(dict96$ensembl_gene_id)
+brca.omics.96 = brca.omics[, intersect(names(brca.omics), genes96)]
+
+colnames(brca.omics.96)<- dict96$hgnc_symbol[match(colnames(brca.omics.96),dict96$ensembl_gene_id)]
+```
 
 
 # Summary
