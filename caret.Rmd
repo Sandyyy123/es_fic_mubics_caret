@@ -76,7 +76,7 @@ sessionInfo()
 
 Following the same steps that we used in the previous [course](https://cafernandezlo.github.io/es_fic_mubics_ggplot_dplyr/ggplot-dplyr.html) we will download the TCGA-BRCA and in particular: transcriptome profiling of gene expression quantification where the experimental strategy is (RNAseq) and the workflow type is HTSeq-FPKM-UQ and only primary solid tumor data of the affymetrix GPL86 profile.
 
-```{r}
+```{r eval=FALSE}
 query = GDCquery(project = 'TCGA-BRCA', 
          data.category = 'Transcriptome Profiling',
          data.type = 'Gene Expression Quantification',
@@ -97,7 +97,8 @@ samples = colData(brca.expDat)
 rownames(samples) = 1:nrow(samples)
 ptSamples = samples[which(samples$definition == 'Primary solid Tumor'), ]
 
-ptSamples = ptSamples[, c('barcode', 'patient', 'vital_status', 'days_to_last_follow_up', 'days_to_death', 'gender', 'age_at_diagnosis')]
+ptSamples = ptSamples[, c('barcode', 'patient', 'vital_status', 'days_to_last_follow_up', 'days_to_death', 'gender', 'age_at_diagnosis','ajcc_pathologic_stage',
+                          'tumor_stage','ajcc_pathologic_n','tumor_grade')]
 
 mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 convert <- getBM(filters= c('ensembl_gene_id'), 
@@ -126,6 +127,7 @@ brca.omics.96 = brca.omics[, intersect(names(brca.omics), genes96)]
 colnames(brca.omics.96)<- dict96$hgnc_symbol[match(colnames(brca.omics.96),dict96$ensembl_gene_id)]
 ```
 
+__NOTE:__ Files `brca.omics.96` and `ptSamples` are available for download from the Universidade da Coruña community in Zenodo [here](https://doi.org/10.5281/zenodo.4309168). Load them in R using the `readRDS()` function.
 
 # Summary
 
