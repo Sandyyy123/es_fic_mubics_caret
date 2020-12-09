@@ -11,6 +11,8 @@ output:
     toc: yes
 ---
 
+__DISCLAIMER__ this course is for teaching purposes, not for a regular cancer analysis using ML.
+
 # Session info
 
 `sessionInfo()` display which version of R you are running in which platform and operative system, the locale you are using and the attached packages.
@@ -27,6 +29,10 @@ library(biomaRt)
 library(GEOquery)
 library(ggplot2)
 library(caret)
+library(tibble)
+library(tidyr)
+library(dplyr)
+library(stringr)
 sessionInfo()
 ```
 
@@ -127,7 +133,257 @@ brca.omics.96 = brca.omics[, intersect(names(brca.omics), genes96)]
 colnames(brca.omics.96)<- dict96$hgnc_symbol[match(colnames(brca.omics.96),dict96$ensembl_gene_id)]
 ```
 
-__NOTE:__ Files `brca.omics.96` and `ptSamples` are available for download from the Universidade da Coruña community in Zenodo [here](https://doi.org/10.5281/zenodo.4309168). Load them in R using the `readRDS()` function.
+__NOTE:__ Files `brca.omics.96` and `ptSamples` are available for download from the Universidade da Coruña's community in Zenodo [here](https://doi.org/10.5281/zenodo.4309168). Load them in R using the `readRDS()` function.
+
+```{r}
+brca.omics.96<-readRDS(file = '~/Downloads/TCGA.BRCA.brca.omics.96.RData')
+ptSamples <- readRDS(file = '~/Downloads/TCGA.BRCA.ptSamples.RData')
+```
+
+
+## Exploratory data analysis
+
+Before training any ML model it's important to understand your data. Thus, an initial descriptive exploratory analysis is of interest. For exaple, some typical errors arise during the loading process of the data. Furthermore, sometimes codification problems such as slash, values of 0 for unknown data or other similar situations.
+
+## Features types.
+
+One of the initial steps should be the check of the types of the features in order to check that all numeric values are numbers for R and that cualitative features are factor or boolean for example. You can do this task with `str()` from base or `glimpse` from `Tibble` for example:
+
+```{r}
+str(brca.omics.96)
+```
+
+```{r}
+glimpse(brca.omics.96)
+```
+
+We lost some information in the previous matching process using `BioMart` and we also observed that some of the genes have 0's.
+
+```{r}
+str(ptSamples)
+ptSamples<-as.data.frame(ptSamples)
+```
+
+We have all the cuantitative features as `character` so we should fix this. In this case, we will add new features with an extension in order to have a copy of the original feature for reproducibility and error checking pouposes.
+
+```{r}
+ptSamples$gender.fac <- as.factor(ptSamples$gender)
+ptSamples$vital_status.fac <- as.factor(ptSamples$vital_status)
+```
+
+In case of further changes we'll fix features in the following part of the course.
+
+We have to remove firstly those features without a gene name (empty colnames) because `dplyr` cannot deal with repeated colnames.
+
+```{r}
+brca.omics.96 <-subset(brca.omics.96, select=which(!duplicated(names(brca.omics.96)))) 
+keep.cols <- names(brca.omics.96) %in% c("")
+brca.omics.96 <- brca.omics.96 [!keep.cols] 
+```
+
+We should check for NA's in both files:
+
+```{r}
+length(which(is.na(ptSamples)))
+length(which(is.na(brca.omics.96)))
+```
+
+No NAs on omic data but in clinical.
+
+We'll follow the `Tidiverse` philosophy in order to create a new data structure to facilitate further data visualizations.
+
+```{r warning=FALSE}
+ptSamples.tidy <- ptSamples %>% gather(key = "feature", value = "value", -barcode)
+```
+
+Let's ggplot the % of NAs in each of the clinical features.
+
+```{r}
+ptSamples.tidy %>%
+  group_by(feature) %>% 
+  summarize(NAs = 100 * sum(is.na(value)) / length(value)) %>%
+  ggplot(aes(x = reorder(feature, dplyr::desc(NAs)), y = NAs)) +
+    geom_col() +
+    labs(title = "% of NA in clinical data", x=element_blank(), y = "% of NAs") +
+    theme(axis.text.x = element_text(angle = 45,hjust = 1))
+```
+
+Summarising, we don't have enough data in `days_to_death` with a % of NAs higher than 86% and have some missing data in other features but seems to be afordable.
+
+Let's check the distribution of `gender` and `vital_status`:
+
+```{r}
+ggplot(data = ptSamples, aes(x = gender.fac, y = ..count.., fill = gender.fac)) +
+  geom_bar() +
+  labs(fill='Gender',
+       x=element_blank())
+```
+
+```{r}
+ggplot(data = ptSamples, aes(x = vital_status.fac, y = ..count.., fill = vital_status.fac)) +
+  geom_bar() +
+  labs(fill='Vital status',
+       x=element_blank())
+```
+
+In both cases, patient with barcode `TCGA-BH-A0B2-01A-11R-A10J-07` has all clinical values to NAs. We remove this patient.
+
+```{r}
+ptSamples<-ptSamples %>% filter(barcode!='TCGA-BH-A0B2-01A-11R-A10J-07')
+
+ggplot(data = ptSamples, aes(x = vital_status.fac, y = ..count.., fill = vital_status.fac)) +
+  geom_bar() +
+  labs(fill='Vital status',
+       x=element_blank())
+```
+
+Let's play with `ajcc_pathologic_stage` and remove blank spaces in the different stages with `stringr`:
+
+```{r}
+ptSamples$ajcc_pathologic_stage<-str_replace_all(ptSamples$ajcc_pathologic_stage, ' ','')
+ptSamples$ajcc_pathologic_stage.fac <- as.factor(ptSamples$ajcc_pathologic_stage)
+```
+
+
+```{r}
+ggplot(data = ptSamples, aes(x = ajcc_pathologic_stage.fac, y = ..count.., fill = ajcc_pathologic_stage.fac)) +
+  geom_bar() +
+  labs(fill='Stage',
+       x=element_blank())+
+  theme(axis.text.x = element_text(angle = 45,hjust = 1))
+```
+
+```{r}
+ptSamples<-mutate(ptSamples, ajcc_pathologic_stage_new_3 =
+         ifelse(ajcc_pathologic_stage %in% c('StageI','StageIA','StageIB'),'Stage1',
+                ifelse(ajcc_pathologic_stage %in% c('StageII','StageIIA','StageIIB'),'Stage2',
+                       ifelse(ajcc_pathologic_stage %in% c('StageIII','StageIIIA','StageIIIB','StageIIIC'),'Stage3',
+                              ifelse(ajcc_pathologic_stage %in% c('StageIV','StageX'),'Stage4','Others')
+                                )
+                       )
+                )
+       )
+
+ggplot(data = ptSamples, aes(x = ajcc_pathologic_stage_new_3, y = ..count.., fill = ajcc_pathologic_stage_new_3)) +
+  geom_bar() +
+  labs(fill='New stage with 3 levels',
+       x=element_blank(),
+       y=element_blank())+
+  theme(axis.text.x = element_text(angle = 45,hjust = 1))
+```
+
+
+```{r warning=FALSE}
+ptSamples<-mutate(ptSamples, age_at_diagnosis.fac =
+         ifelse(age_at_diagnosis<21560,'early','late')
+       )
+
+ggplot(data = ptSamples, aes(x = age_at_diagnosis.fac, y = ..count.., fill = age_at_diagnosis.fac)) +
+  geom_bar() +
+  labs(fill='Age at diagnosis',
+       x=element_blank(),
+       y=element_blank())+
+  theme(axis.text.x = element_text(angle = 45,hjust = 1))
+```
+
+We will study if there exist a genomic pattern for classifying BRCA patients according with this new binary age at diagnosis.
+
+```{r}
+ptSamples<-ptSamples %>% drop_na(age_at_diagnosis.fac)
+```
+
+## Train and test dataset
+
+In order to evaluate the predictive power of the ML we must ensure that the model's performance should be equal (or close to) with unknown new patients. In orther to do this, we'll separate the dataset in two groups: training and test (80-20%) according with the output. Furthermore, this dataset has a FPKM normalization (reads/fragments per kilobase of exon per million reads/fragments mapped) but most of the ML models are sensible to differences in the scale of the features so, there are mainly two different approaches: normalization or standardization. Generally speaking, standardization (scale the features to have a mean of 0 and a standard deviation of 1) is preferred. In R we have the `scale()` function. This step belongs to the next section (data preprocessing) but it's preferable to do it before data splitting. 
+
+```{r}
+brca.data <- as.data.frame(scale(brca.omics.96))
+mean(brca.data$TP53)
+sd(brca.data$TP53)
+
+brca.data$output <- ptSamples[match(row.names(brca.data),ptSamples$barcode),"age_at_diagnosis.fac"]
+brca.data <- brca.data %>% drop_na(output)
+```
+
+Ok but, what does this standardization looks like? in order to use `ggplot2` to boxplot three aleatory genes we need data in [long format](https://statisticsglobe.com/reshape-data-frame-from-wide-to-long-format-in-r) and fortunatelly we have the `reshape` package and the `melt()` function to help us.
+
+```{r warning=FALSE}
+library(reshape2)
+data.raw <- melt(brca.omics.96[,c(1,2,3)])
+data.scale <- melt(brca.data[,c(1,2,3)])
+```
+
+```{r}
+ggplot(data.raw, aes(x = variable, y = value, fill=variable)) +
+  geom_boxplot()+
+  labs(x=element_blank(),
+       y=element_blank(),
+       fill='Genes (raw)')
+```
+
+```{r}
+ggplot(data.scale, aes(x = variable, y = value, fill=variable)) +
+  geom_boxplot()+
+  labs(x=element_blank(),
+       y=element_blank(),
+       fill='Genes (standardized)')
+```
+
+Looks pretty similar, or not? Let's check what's going on:
+
+```{r}
+data.raw$type <- 'raw'
+data.scale$type <- 'standardized'
+data.comparison <- rbind(data.raw,data.scale)
+ggplot(data.comparison, aes(x = variable, y = value, fill=type)) +
+  geom_boxplot()+
+  labs(x=element_blank(),
+       y=element_blank(),
+       fill='Scales')
+```
+
+A good idea is to stratify the groups to have equal proportion of each one of the classes (in binary classification).
+
+```{r}
+set.seed(23)
+
+train <- createDataPartition(y = brca.data$output, p = 0.8, list = FALSE, times = 1)
+brca.data_train <- brca.data[train, ]
+brca.data_test  <- brca.data[-train, ]
+```
+
+## Data preprocessing
+
+`Caret` has several different useful functions for all the steps of a ML analysis pipeline. One of them is `nearZeroVar()` to remove those features with a single value (zero-variance) because they are useless.
+
+```{r}
+nzv <- nearZeroVar(brca.data)
+head(nzv)
+length(nzv)
+brca.data.nzv <- brca.data[,-nzv]
+```
+
+By default, `nearZeroVar` will return the positions of the problematic features. We remove those features.
+
+Most of the models may benefit from reducing the level of correlation between features. More correlation does not imply more information and, on the other hand, likely imply more noise. `Caret` has a `findCorrelation()` function for this task.
+
+```{r}
+output <- brca.data.nzv %>% select('output')
+data <- brca.data.nzv[,setdiff(colnames(brca.data.nzv),'output')]
+high.cor <- findCorrelation(data, cutoff = .75)
+brca.data.nzv.cor <- brca.data.nzv[,-high.cor]
+brca.data.nzv.cor$output <- output
+```
+
+A cutoff of `.75` is clearly too much ;)
+
+We will keep the final set of genes as the ones of interest so we must keep them too in the train and test datasets:
+
+```{r}
+brca.data_train <- brca.data_train %>% select(names(brca.data.nzv.cor))
+brca.data_test <- brca.data_test %>% select(names(brca.data.nzv.cor))
+```
+
 
 # Summary
 
