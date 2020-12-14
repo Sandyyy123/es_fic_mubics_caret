@@ -11,7 +11,7 @@ output:
     toc: yes
 ---
 
-__DISCLAIMER__ this course is for teaching purposes, not for a regular cancer analysis using ML.
+__DISCLAIMER__ this course is for teaching purposes, not for a regular cancer analysis using ML. Furthermore, it offers more open questions than answers ;)
 
 # Session info
 
@@ -43,8 +43,7 @@ In this course, we review some of the fundamentals of machine learning (ML) with
 
 * Exploratory data analysis
 * Data pre-processing
-* Filter feature selection
-* Machine learning models: Random Forest and Naive Bayes
+* Machine learning models: Random Forest and Linear Discriminant Analysis
 * Model comparison
 
 And the question now is the following: What is Machine Learning? Firstly, a hot topic in the last years. Generally speaking, a system that can access data and use it to learn and extract underlying knowledge from it in order to automatically learn without being explicitly programmed for it. So, it learns from your data (handle with care), it's fast and it tends to overfits to your data (handle with care). So we are able to build a model on the data and then use it to predict on new data. They learn patterns from the data so a particular pattern not present in your data could not been predicted nor even known by the model. Furthermore, the big assumption here is that "what we learn from the past will be used to predict the future" and as we know, the future in unpredictable. So **handle with care** following a good experimental design to reduce the uncertainties.
@@ -153,7 +152,7 @@ One of the initial steps should be the check of the types of the features in ord
 str(brca.omics.96)
 ```
 
-```{r}
+```{r eval=FALSE}
 glimpse(brca.omics.96)
 ```
 
@@ -384,9 +383,246 @@ brca.data_train <- brca.data_train %>% select(names(brca.data.nzv.cor))
 brca.data_test <- brca.data_test %>% select(names(brca.data.nzv.cor))
 ```
 
+## Machine Learning models: Random Forest and Linear Discriminant Analysis
+
+In the following sections we will train and tune two ML models: Random Forest and Linear Discriminant Analysis and we'll compare them with the same train and test datasets.
+
+### Random Forest
+
+Random forest [(RF)](https://link.springer.com/article/10.1023/A:1010933404324) combines several classification trees, which are fitted to subsamples of the original sample-set using randomly selected subsets of predictor variables. From the complete _forest_, a single global prediction is obtained as an average (in case of regression) or majority vote (in case of classification) of the prediction of all trees. The advantages of this method are: (1) it is simple and results are easy to interpret in the case of few predictors; and (2) it can be applied to many problems, even if there are high-order interaction effects or non-linear relationships between the variables. The `ranger` R package was used for the analysis. We'll need more dependencies: `e1071`... __REMEMBER__: use `Caret` to rule them all!
+
+In order to follow a robust experimental design we'll follow [this](https://peerj.com/articles/2721/) approach with 5 runs of a 10-fold cross-validation approach. This particular implementation of the RF has the following hyperparameters:
+
+* _mtry_: number of features randomly selected for each tree. We'll test with the following range: 3, 5, 7.
+* _min.node.size_: minimum node's size to be divided. We'll test with the following range: 2, 4, 6.
+* _splitrule_: division criteria.
+
+Furthermore, hyperparameter tuning could be expensive in terms of computational power. In order to increase the speed of working we'll use a package for paralelization (without coding especifically nothing!) called `doParallel`. Remember to `install.packages('doParallel')`.
+
+```{r}
+library(doParallel)
+cl <- makePSOCKcluster(3)
+registerDoParallel(cl)
+
+cv.k  <- 10
+reps <- 5
+
+hyperparameters <- expand.grid(mtry = c(3, 5, 7),
+                               min.node.size = c(2, 4, 6),
+                               splitrule = "gini")
+
+set.seed(1234)
+seeds <- vector(mode = "list", length = (cv.k * reps) + 1)
+for (i in 1:(cv.k * reps)) {
+  seeds[[i]] <- sample.int(1000, nrow(hyperparameters))
+}
+seeds[[(cv.k * reps) + 1]] <- sample.int(1000, 1)
+
+train.control <- trainControl(method = "repeatedcv", number = cv.k,
+                              repeats = reps, seeds = seeds,
+                              returnResamp = "final", verboseIter = TRUE,
+                              allowParallel = TRUE)
+
+set.seed(5678)
+rf.model <- train(x = brca.data_train[,-ncol(brca.data_train)],
+                  y= brca.data_train$output,
+                  method = "ranger",
+                  tuneGrid = hyperparameters,
+                  metric = "Accuracy",
+                  importance= 'impurity',
+                  trControl = train.control,
+                  num.trees = 500)
+rf.model
+```
+
+__ADVANCED TIP__: In almost all cases, using a formula with `train()` will convert factors to dummy variables, however some models does not: `ranger`, `randomForest` and some others. More [info](https://www.slideshare.net/Work-Bench/i-dont-want-to-be-a-dummy-encoding-predictors-for-trees).
+
+The final model is here:
+
+```{r}
+rf.model$finalModel
+```
+
+Graphically our training process was like this:
+
+```{r}
+ggplot(rf.model, highlight = TRUE) +
+  scale_x_continuous(breaks = 1:30) +
+  labs(title = "RF",subtitle = "Accuracy") +
+  guides(color = guide_legend(title = "mtry"),
+         shape = guide_legend(title = "mtry")) +
+  theme_bw()
+```
+
+```{r warning=FALSE}
+rf.model$results %>%
+  ggplot()+
+  geom_point(aes(x = min.node.size, y = Accuracy))+
+  geom_smooth(aes(x = min.node.size, y = Accuracy))+
+  facet_wrap(~mtry)
+```
+
+
+### Linear Discriminant Analysis
+
+One of the most used baseline ML models is Linear Discriminant Analaysi (LDA). Remember the Occam's razor, the simplest explanation is usually the right one: less features, less hyperparameters, less complexity and so on. There is not an absolutely better ML model for every single possible task so... we should always run several different experiments with several models in order to understand and explore our problem from different points of view.
+
+In order to follow a robust experimental design we'll follow again [this](https://peerj.com/articles/2721/) approach with 5 runs of a 10-fold cross-validation approach. 
+
+This particular implementation of the LDA has no hyperparameters so it fits perfectly the baseline model definition.
+
+```{r}
+set.seed(5678)
+lda.model <- train(output ~ ., data = brca.data_train,
+                   method = "lda",
+                   metric = "Accuracy",
+                   trControl = train.control)
+lda.model
+```
+
+The final model is here:
+
+```{r eval=FALSE}
+lda.model$finalModel
+```
+
+In this case, we are going to compare a complex model with three hyperparameters such as RF against a simple baseline model without hyperparameters such as LDA.
+
+### Model comparison
+
+After the experiments we have two ML models, trained in the same conditions and with the same experimental design so now, the question is, which is the best one?
+
+We ran 5 repetitions of a 10-fold cross-validation experiment using `set.seed()` to ensure that both models worked on the same set of data and partitions and in the same order. With `resamples()` we can extract performance metrics for each repetition.
+
+```{r}
+results <- list(RF=rf.model, LDA=lda.model)
+resam.results <- resamples(results)
+resam.results$values %>% head()
+```
+
+```{r}
+bwplot(resam.results)
+```
+
+Let's check if we have one of the models that provide better performance in terms of accuracy:
+
+```{r}
+xyplot(resam.results, metric = "Accuracy")
+```
+
+```{r}
+dotplot(resam.results, metric = "Accuracy")
+```
+
+And finally a density plot to look for outlier folds with unusual high or low values of accuracy:
+
+```{r}
+densityplot(resam.results, metric = "Accuracy")
+```
+
+At this point, a good idea is to plot the results using `ggplot` and for this, we should change the data.frame to something more friedly as we did before:
+
+```{r}
+resam.results.gg <- resam.results$values %>%
+                         gather(key = "model", value = "value", -Resample) %>%
+                         separate(col = "model", into = c("model", "score"),
+                                  sep = "~", remove = TRUE)
+resam.results.gg %>% head()
+```
+
+Let's check the behaviour of the models during the five runs:
+
+```{r}
+resam.results.gg %>% 
+  group_by(model, score) %>% 
+  summarise(mean.5run = mean(value)) %>%
+  spread(key = score, value = mean.5run) %>%
+  arrange(desc(Accuracy))
+```
+
+This is the training error of 5 runs of a 10-fold CV, which is a good estimator, however we have a subset of unknown patients for the models and we want to check the real generalization capability of the models. We'll use the `extractPrediction()` function that, according to the [Rdocumentation](https://www.rdocumentation.org/packages/caret/versions/6.0-86/topics/extractPrediction) will calculate the training and test data predictions. The original training data are used to predict on.
+
+```{r}
+preds.results <- extractPrediction(
+                  models = results,
+                  testX = brca.data_test %>% select(-output),
+                  testY = brca.data_test$output
+                )
+preds.results %>% head()
+```
+
+```{r}
+preds.scores <- preds.results %>%
+                         mutate(success = ifelse(obs == pred, TRUE, FALSE)) %>%
+                         group_by(object, dataType) %>%
+                         summarise(accuracy = mean(success))
+
+preds.scores %>%
+  spread(key = dataType, value = accuracy) %>%
+  arrange(desc(Test))
+```
+
+And graphically:
+
+```{r}
+ggplot(data = preds.scores,
+       aes(x = reorder(object, accuracy), y = accuracy,
+           color = dataType, label = round(accuracy, 2))) +
+  geom_point(size = 10,shape=18) +
+  geom_text(color = "white", size = 3) +
+  scale_y_continuous(limits = c(0.5, 1)) +
+  coord_flip() +
+  labs(title = "Accuracy",
+       subtitle = "Train and test",
+       x = element_blank(),
+       y = 'Performance') +
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+```
+
+Our basal value is 0.5 as we have such percentage of cases in the majority class. 
+
+Finally, let's check the importance of each of the genes in the best model:
+
+```{r}
+importance.rf <- varImp(rf.model,scale = TRUE)
+plot(importance.rf, main = 'RF (ranger). Gene importance',top=10)
+```
+
+We have omic and clinical data, we should use it carefully and think before starting a new analysis. Otherwise you'll loose time to finish without relevant biological conclusions!
+
+# Open questions
+
+1. Are the important genes related with the biological condition?
+2. Training errors close to 1 and test errors much lower means something?
+3. According to the results could we improve the RF?
+4. Why the OOB error is so similar to the CV error?
+5. Are accuracy and kappa good performance measures for binary problems?
+6. Can we extract conclusions from age at diagnosis binary divided into early and late?
+7. Can we extract genetic conclusions from age at diagnosis?
+8. Is a good idea to have imbalanced data?
+9. What is missing to do a real cancer analysis using ML, R and Caret?
+10. Moving from more 12,000 genes to more than 600 is a huge jump, isn't?
+11. Can you use feature selection or feature extraction techniques to reduce the dimensionality of the problem?
+12. Can we learn something from the ML results in train and test? What does this kappa means? Is a better measure than accuracy?
+13. Where do we have to go to check info from a gen?
+14. Gens aren't alone in the genome, they use to work together. Were do we have to go to check info from pathways?
 
 # Summary
 
 In this course we have covered the following concepts:
 
-* Bla bla
+* Machine Learning for binary classification with Caret and R
+* Exploratory data analysis
+* We used Random Forest and LDA
+* We learned how to automatically search for the best tune parameters for ML models using Caret
+* Some models compute an importance for each of the features. This is not a p-value but it's helpful
+* We learned how sensible to data are ML algorithms. How important is to have a good dataset. How to clean data
+* ggplot2, dplyr, reshape...
+
+# References
+
+* The Caret package. [link](https://topepo.github.io/caret/)
+* An introduction to statistical learning: with applications in R. Gareth James, Daniela Witten, Trevor Hastie and Robert Tibshirani. [link](https://trevorhastie.github.io/ISLR/index.html)
+* R and Caret by Joaquín Amat Rodrigo. [link](https://www.cienciadedatos.net/documentos/41_machine_learning_con_r_y_caret#Comparaci%C3%B3n_de_modelos). (CC BY 4.0)
